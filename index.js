@@ -1,6 +1,6 @@
 "use strict";
 var logger = require('@open-age/logger')('offline-processor');
-var config = require('config').get('queueServer');
+var queueConfig = require('config').get('queueServer');
 var appRoot = require('app-root-path');
 var _ = require('underscore');
 var async = require('async');
@@ -9,60 +9,104 @@ var paramCase = require('param-case');
 let redisSMQ = require('rsmq');
 var RSMQWorker = require("rsmq-worker");
 
-config.name = config.name || 'offline';
-config.timeout = config.timeout || 30 * 60 * 1000; //default 3000 ~ now 30 min
-config.processors = config.processors || {
-    dir: 'actionHandlers'
-};
-config.processors.default = config.processors.default || {
-    dir: 'defaults',
-    file: 'default.js'
-};
-
-config.context = {
-    serializer: null,
-    deserializer: null,
-    processors: null
-};
-
 let redisQueue = null;
-if (!config.disabled) {
-    redisQueue = new redisSMQ({
-        host: config.host,
-        port: config.port,
-        ns: config.ns
-    });
 
-    redisQueue.createQueue({
-        qname: config.name,
-        maxsize: -1
-    }, function (err, resp) {
-        if (err && err.message === "Queue exists") {
-            logger.info(`offline ${err.message}`);
+let options = {
+    disabled: false,
+    name:  'offline',
+    port:  6379,
+    host:  '127.0.0.1',
+    ns: 'offline',
+    timeout: 30 * 60 * 1000, // 30 min
+    processors: {
+        dir: 'actionHandlers',
+        default: {
+            dir: 'defaults',
+            file: 'default.js'
         }
-        if (resp === 1) {
-            logger.info(`offline created`);
+    },
+    context: {
+        serializer: (ctx)=>Promise.cast(ctx),
+        deserializer: (ctx)=>Promise.cast(ctx),
+        processors: (ctx)=>Promise.cast([])
+    }
+};
+const setOptions = (config) => {
+    options.disabled = config.disabled;
+    if (config.name) {
+        options.name = config.name;
+    }
+    if (config.port) {
+        options.port = config.port;
+    }
+
+    if (config.host) {
+        options.host = config.host;
+    }
+
+    if (config.ns) {
+        options.ns = config.ns;
+    }
+
+    if (config.timeout) {
+        options.timeout = config.timeout;
+    }
+
+    if (config.processors) {
+        if (config.processors.dir) {
+            options.processors.dir = config.processors.dir;
         }
-    });
-}
+
+        if (config.processors.default) {
+            if (config.processors.default.dir) {
+                options.processors.default.dir = config.processors.default.dir;
+            }
+
+            if (config.processors.default.file) {
+                options.processors.default.file = config.processors.default.file;
+            }
+        }
+    }
+    if (config.context) {
+        if (config.context.serializer) {
+            options.context.serializer = config.context.serializer;
+        }
+
+        if (config.context.deserializer) {
+            options.context.deserializer = config.context.deserializer;
+        }
+
+        if (config.context.processors) {
+            options.context.processors = config.context.processors;
+        }
+    }
+
+    
+};
+
+setOptions(queueConfig);
 
 const initialize = function (params) {
 
-    params = params || {};
-    if (params.disabled === true) {
-        config.disabled = true;
-    }
-    params.context = params.context || {};
-    if (params.context.serializer) {
-        config.context.serializer = params.context.serializer;
-    }
+    setOptions(params);
+    if (!options.disabled) {
+        redisQueue = new redisSMQ({
+            host: options.host,
+            port: options.port,
+            ns: options.ns
+        });
 
-    if (params.context.deserializer) {
-        config.context.deserializer = params.context.deserializer;
-    }
-
-    if (params.context.processors) {
-        config.context.processors = params.context.processors;
+        redisQueue.createQueue({
+            qname: options.name,
+            maxsize: -1
+        }, function (err, resp) {
+            if (err && err.message === "Queue exists") {
+                logger.info(`offline ${err.message}`);
+            }
+            if (resp === 1) {
+                logger.info(`offline created`);
+            }
+        });
     }
 };
 
@@ -125,9 +169,9 @@ const queueMessage = function (entity, action, data, context, callback) {
 const listen = function () {
 
     logger.info('listening for messages');
-    var worker = new RSMQWorker(config.name, {
+    var worker = new RSMQWorker(options.name, {
         rsmq: redisQueue,
-        timeout: config.timeout
+        timeout: options.timeout
     });
 
     worker.on('error', function (err, msg) {
@@ -156,24 +200,24 @@ const listen = function () {
 };
 
 const handleMessage = function (data, context, callback) {
-    const root = `${appRoot}/${config.processors.dir}/${paramCase(context.entity)}/${paramCase(context.action)}`;
+    const root = `${appRoot}/${options.processors.dir}/${paramCase(context.entity)}/${paramCase(context.action)}`;
     if (!fs.existsSync(root)) {
         return callback();
     }
     async.waterfall([cb => {
-        if (!config.context.deserializer) {
+        if (!options.context.deserializer) {
             return cb(null, context);
         }
-        return config.context.deserializer(context).then(item => cb(null, item)).catch(err => cb(err));
+        return options.context.deserializer(context).then(item => cb(null, item)).catch(err => cb(err));
 
     }, cb => { // default actions
         let handlerFiles = [];
-        let file = `${root}/${config.processors.default.file}`;
+        let file = `${root}/${options.processors.default.file}`;
         if (fs.existsSync(file)) {
             handlerFiles.push(file);
         }
 
-        let dir = `${root}/${config.processors.default.dir}`;
+        let dir = `${root}/${options.processors.default.dir}`;
         if (fs.existsSync(dir)) {
             _.each(fs.readdirSync(dir), function (file) {
                 if (file.search('.js') < 0) {
@@ -186,11 +230,11 @@ const handleMessage = function (data, context, callback) {
 
         handleDefaultProcessors(handlerFiles, data, context, cb);
     }, cb => {
-        if (config.context.processors) {
+        if (options.context.processors) {
             return cb(null, []);
         }
 
-        return config.context.processors(context).then(items => cb(null, items)).catch(err => cb(err));
+        return options.context.processors(context).then(items => cb(null, items)).catch(err => cb(err));
 
     }, (processors, cb) => {
 
@@ -224,7 +268,7 @@ const queue = (entity, action, data, context) => {
     context.entity = entity;
     context.action = action;
 
-    if (config.disabled || global.processSync || context.processSync) {
+    if (options.disabled || global.processSync || context.processSync) {
         logger.debug('immediately processing', {
             entity: entity,
             action: action
@@ -246,8 +290,8 @@ const queue = (entity, action, data, context) => {
         action: action
     });
 
-    if (config.context.serializer) {
-        return config.context.serializer(context).then(context => {
+    if (options.context.serializer) {
+        return options.context.serializer(context).then(context => {
             return new Promise((resolve, reject) => {
                 queueMessage(entity, action, data, context, function (err) {
                     if (err) {
