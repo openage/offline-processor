@@ -86,6 +86,10 @@ const setOptions = (config) => {
 
 setOptions(queueConfig);
 
+/**
+ * 
+ * @param {*} params 
+ */
 const initialize = function (params) {
 
     setOptions(params);
@@ -264,6 +268,13 @@ const process = (message, callback) => {
     return handleMessage(data.data, data.context, callback);
 };
 
+/**
+ * 
+ * @param {string} entity 
+ * @param {string} action 
+ * @param {*} data 
+ * @param {*} context 
+ */
 const queue = (entity, action, data, context) => {
     context.entity = entity;
     context.action = action;
