@@ -4,7 +4,8 @@
   "description": "redis based offline processor",
   "main": "index.js",
   "scripts": {
-    "test": "test"
+    "test": "test",
+    "release:patch": "npm version patch"
   },
   "repository": {
     "type": "git",

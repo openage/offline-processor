@@ -234,7 +234,7 @@ const handleMessage = function (data, context, callback) {
 
         handleDefaultProcessors(handlerFiles, data, context, cb);
     }, cb => {
-        if (options.context.processors) {
+        if (!options.context.processors) {
             return cb(null, []);
         }
 
