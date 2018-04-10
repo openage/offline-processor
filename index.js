@@ -147,6 +147,10 @@ const handleContextProcessor = async(file, entity, config, context) => {
 
 const handleMessage = async(entity, action, data, context) => {
     let rootLogger = context.logger
+    context.trigger = {
+        entity: entity,
+        action: action
+    }
     const actionRoot = `${options.processors.dir}/${paramCase(entity)}/${paramCase(action)}`
     const root = `${appRoot}/${actionRoot}`
     if (!fs.existsSync(root)) {
@@ -162,7 +166,7 @@ const handleMessage = async(entity, action, data, context) => {
 
     let dir = `${root}/${options.processors.default.dir}`
     if (fs.existsSync(dir)) {
-        for (let file in fs.readdirSync(dir)) {
+        for (let file of fs.readdirSync(dir)) {
             if (file.search('.js') < 0) {
                 context.logger.error(`${file} is not .js`)
                 return
@@ -177,10 +181,10 @@ const handleMessage = async(entity, action, data, context) => {
         return
     }
     let processors = await options.context.processors(context)
-    for (let processor in processors) {
-        let file = `${root}/${processor.name}`
+    for (let processor of processors) {
+        let file = `${root}/${processor.name}.js`
         if (fs.existsSync(file)) {
-            await handleContextProcessor(file, data, processor.config, context)
+            return await handleContextProcessor(file, data, processor.config, context)
         }
     }
 }
