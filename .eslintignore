@@ -1,0 +1,6 @@
+public
+tests
+*.md
+package-lock.json
+package.json
+jsconfig.json

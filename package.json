@@ -1,42 +1,42 @@
 {
-  "name": "@open-age/offline-processor",
-  "version": "1.1.1",
-  "description": "redis based offline processor",
-  "main": "index.js",
-  "scripts": {
-    "test": "test",
-    "release:patch": "npm version patch"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/openage/offline-processor.git"
-  },
-  "keywords": [
-    "offline",
-    "redis",
-    "queue"
-  ],
-  "dependencies": {
-    "@open-age/logger": "^1.0.2",
-    "app-root-path": "^2.0.1",
-    "async": "^2.5.0",
-    "config": "^1.27.0",
-    "fs": "0.0.1-security",
-    "param-case": "^2.1.1",
-    "rsmq": "^0.8.2",
-    "rsmq-worker": "^0.5.2",
-    "underscore": "^1.8.3"
-  },
-  "author": "Sunny Parkash <sunny.parkash@gmail.com> (https://github.com/sunnyparkash)",
-  "license": "WTFPL",
-  "bugs": {
-    "url": "https://github.com/openage/offline-processor/issues"
-  },
-  "homepage": "https://github.com/openage/offline-processor#readme",
-  "devDependencies": {
-    "chai": "^3.5.0",
-    "chai-http": "^2.0.1",
-    "eslint": "^4.9.0",
-    "mocha": "^2.4.5"
-  }
+    "name": "@open-age/offline-processor",
+    "version": "1.1.2",
+    "description": "redis based offline processor",
+    "main": "index.js",
+    "scripts": {
+        "test": "test",
+        "release:patch": "npm version patch"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/openage/offline-processor.git"
+    },
+    "keywords": [
+        "offline",
+        "redis",
+        "queue"
+    ],
+    "dependencies": {
+        "@open-age/logger": "^1.0.2",
+        "app-root-path": "^2.0.1",
+        "async": "^2.5.0",
+        "config": "^1.27.0",
+        "fs": "0.0.1-security",
+        "param-case": "^2.1.1",
+        "rsmq": "^0.8.2",
+        "rsmq-worker": "^0.5.2",
+        "underscore": "^1.8.3"
+    },
+    "author": "Sunny Parkash <sunny.parkash@gmail.com> (https://github.com/sunnyparkash)",
+    "license": "WTFPL",
+    "bugs": {
+        "url": "https://github.com/openage/offline-processor/issues"
+    },
+    "homepage": "https://github.com/openage/offline-processor#readme",
+    "devDependencies": {
+        "chai": "^3.5.0",
+        "chai-http": "^2.0.1",
+        "eslint": "^4.9.0",
+        "mocha": "^2.4.5"
+    }
 }
