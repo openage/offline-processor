@@ -81,7 +81,7 @@ const setOptions = (config) => {
 
 setOptions(queueConfig || {})
 
-const handleDefaultProcessor = async(file, entity, context) => {
+const handleDefaultProcessor = async (file, entity, context) => {
     let handler = require(file)
     if (!handler.process) {
         context.logger.error(`no 'process' method in ${file}`)
@@ -113,7 +113,7 @@ const handleDefaultProcessor = async(file, entity, context) => {
     })
 }
 
-const handleContextProcessor = async(file, entity, config, context) => {
+const handleContextProcessor = async (file, entity, config, context) => {
     let handler = require(file)
     if (!handler.process) {
         context.logger.error(`no 'process' method in ${file}`)
@@ -145,7 +145,7 @@ const handleContextProcessor = async(file, entity, config, context) => {
     })
 }
 
-const handleMessage = async(entity, action, data, context) => {
+const handleMessage = async (entity, action, data, context) => {
     let rootLogger = context.logger
     context.trigger = {
         entity: entity,
@@ -184,7 +184,7 @@ const handleMessage = async(entity, action, data, context) => {
     for (let processor of processors) {
         let file = `${root}/${processor.name}.js`
         if (fs.existsSync(file)) {
-            return await handleContextProcessor(file, data, processor.config, context)
+            return handleContextProcessor(file, data, processor.config, context)
         }
     }
 }
@@ -194,36 +194,36 @@ const handleMessage = async(entity, action, data, context) => {
  * @param {*} params
  */
 exports.initialize = (params, logger) => {
-        let log = logger.start('offline:initialize')
-        setOptions(params || {})
-        if (!options.disabled) {
-            redisQueue = new redisSMQ({
-                host: options.host,
-                port: options.port,
-                ns: options.ns
-            })
+    let log = logger.start('offline:initialize')
+    setOptions(params || {})
+    if (!options.disabled) {
+        redisQueue = new redisSMQ({
+            host: options.host,
+            port: options.port,
+            ns: options.ns
+        })
 
-            redisQueue.createQueue({
-                qname: options.name,
-                maxsize: -1
-            }, function (err, resp) {
-                if (err && err.message === 'Queue exists') {
-                    log.info(`offline ${err.message}`)
-                }
-                if (resp === 1) {
-                    log.info(`offline created`)
-                }
-            })
-        }
+        redisQueue.createQueue({
+            qname: options.name,
+            maxsize: -1
+        }, function (err, resp) {
+            if (err && err.message === 'Queue exists') {
+                log.info(`offline ${err.message}`)
+            }
+            if (resp === 1) {
+                log.info(`offline created`)
+            }
+        })
     }
-    /**
+}
+/**
      *
      * @param {string} entity
      * @param {string} action
      * @param {*} data
      * @param {*} context
      */
-exports.queue = async(entity, action, data, context) => {
+exports.queue = async (entity, action, data, context) => {
     let log = context.logger.start('offline:queue')
 
     if (options.disabled || global.processSync || context.processSync) {
@@ -288,11 +288,10 @@ exports.listen = function (logger) {
     })
 
     worker.on('message', function (message, next, id) {
-
         var data = JSON.parse(message)
 
-        let description = data.data && data.data.id ? `${data.entity}/${data.data.id}/${data.action}` :
-            `${data.entity}/${data.action}`
+        let description = data.data && data.data.id ? `${data.entity}/${data.data.id}/${data.action}`
+            : `${data.entity}/${data.action}`
         let log = logger.start(`PROCESS ${id}: ${description}`)
 
         if (options.context.deserializer) {
