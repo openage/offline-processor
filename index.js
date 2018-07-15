@@ -2,7 +2,7 @@
 var queueConfig = require('config').get('queueServer')
 var appRoot = require('app-root-path')
 var fs = require('fs')
-var paramCase = require('param-case')
+const changeCase = require('change-case')
 let redisSMQ = require('rsmq')
 var RSMQWorker = require('rsmq-worker')
 
@@ -22,6 +22,7 @@ let options = {
             file: 'default.js'
         }
     },
+    models: {},
     context: {
         serializer: (ctx) => Promise.cast(ctx),
         deserializer: (ctx) => Promise.cast(ctx),
@@ -76,6 +77,10 @@ const setOptions = (config) => {
         if (config.context.processors) {
             options.context.processors = config.context.processors
         }
+    }
+
+    if (config.models) {
+        options.models = config.models
     }
 }
 
@@ -151,17 +156,28 @@ const handleMessage = async (entity, action, data, context) => {
         entity: entity,
         action: action
     }
-    const actionRoot = `${options.processors.dir}/${paramCase(entity)}/${paramCase(action)}`
+    const actionRoot = `${options.processors.dir}/${changeCase.paramCase(entity)}/${changeCase.paramCase(action)}`
     const root = `${appRoot}/${actionRoot}`
-    if (!fs.existsSync(root)) {
-        return
-    }
+
     // default actions
-    let file = `${root}/${options.processors.default.file}`
+    let file = `${root}.js`
     if (fs.existsSync(file)) {
         context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.file}:process`)
         await handleDefaultProcessor(file, data, context)
         context.logger.end()
+        context.logger = rootLogger
+    }
+
+    if (!fs.existsSync(root)) {
+        return
+    }
+
+    file = `${root}/${options.processors.default.file}`
+    if (fs.existsSync(file)) {
+        context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.file}:process`)
+        await handleDefaultProcessor(file, data, context)
+        context.logger.end()
+        context.logger = rootLogger
     }
 
     let dir = `${root}/${options.processors.default.dir}`
@@ -174,6 +190,7 @@ const handleMessage = async (entity, action, data, context) => {
             context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.dir}/${file}:process`)
             await handleDefaultProcessor(`${dir}/${file}`, data, context)
             context.logger.end()
+            context.logger = rootLogger
         }
     }
 
@@ -184,9 +201,44 @@ const handleMessage = async (entity, action, data, context) => {
     for (let processor of processors) {
         let file = `${root}/${processor.name}.js`
         if (fs.existsSync(file)) {
-            return handleContextProcessor(file, data, processor.config, context)
+            await handleContextProcessor(file, data, processor.config, context)
         }
     }
+}
+
+const deserialize = async (message, logger) => {
+    var data = JSON.parse(message)
+
+    let context = options.context.deserializer
+        ? await options.context.deserializer(data.context, logger)
+        : data.context
+
+    context.logger = logger
+
+    let model = data.data
+
+    if (options.models && options.models[data.entity] && options.models[data.entity].deserializer) {
+        model = await options.models[data.entity].deserializer(data.data, context)
+    }
+
+    return {
+        context: context,
+        model: model,
+        entity: data.entity,
+        action: data.action
+    }
+}
+const process = async (message, logger) => {
+    let data = await deserialize(message, logger)
+    let description = data.model && data.model.id
+        ? `${data.entity}/${data.model.id}/${data.action}`
+        : `${data.entity}/${data.action}`
+    let log = logger.start(`PROCESS ${description}`)
+
+    data.context.logger = log
+
+    await handleMessage(data.entity, data.action, data.model, data.context)
+    log.end()
 }
 
 /**
@@ -206,7 +258,7 @@ exports.initialize = (params, logger) => {
         redisQueue.createQueue({
             qname: options.name,
             maxsize: -1
-        }, function (err, resp) {
+        }, (err, resp) => {
             if (err && err.message === 'Queue exists') {
                 log.info(`offline ${err.message}`)
             }
@@ -241,6 +293,10 @@ exports.queue = async (entity, action, data, context) => {
     })
 
     let serializedContext = options.context.serializer ? await options.context.serializer(context) : context
+    let serializedModel = data
+    if (options.models && options.models[entity] && options.models[entity].serializer) {
+        serializedModel = await options.models[entity].serializer(data)
+    }
 
     return new Promise((resolve, reject) => {
         redisQueue.sendMessage({
@@ -249,7 +305,7 @@ exports.queue = async (entity, action, data, context) => {
                 context: serializedContext,
                 entity: entity,
                 action: action,
-                data: data
+                data: serializedModel
             })
         }, function (err, messageId) {
             if (err) {
@@ -288,34 +344,15 @@ exports.listen = function (logger) {
     })
 
     worker.on('message', function (message, next, id) {
-        var data = JSON.parse(message)
-
-        let description = data.data && data.data.id ? `${data.entity}/${data.data.id}/${data.action}`
-            : `${data.entity}/${data.action}`
-        let log = logger.start(`PROCESS ${id}: ${description}`)
-
-        if (options.context.deserializer) {
-            return options.context.deserializer(data.context, log).then(context => {
-                return handleMessage(data.entity, data.action, data.data, context).then(() => {
-                    log.end()
-                    next()
-                }).catch(err => {
-                    log.error(err)
-                    log.end()
-                    next(err)
-                })
-            })
-        } else {
-            data.context.logger = log
-            return handleMessage(data.entity, data.action, data.data, data.context).then(() => {
-                log.end()
-                next()
-            }).catch(err => {
-                log.error(err)
-                log.end()
-                next(err)
-            })
-        }
+        let log = logger.start(`PROCESS ${id}`)
+        process(message, log).then(() => {
+            log.end()
+            next()
+        }).catch(err => {
+            log.error(err)
+            log.end()
+            next(err)
+        })
     })
 
     worker.start()
