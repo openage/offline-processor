@@ -1,6 +1,6 @@
 {
     "name": "@open-age/offline-processor",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "description": "redis based offline processor",
     "main": "index.js",
     "scripts": {

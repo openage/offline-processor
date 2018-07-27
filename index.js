@@ -162,7 +162,7 @@ const handleMessage = async (entity, action, data, context) => {
     // default actions
     let file = `${root}.js`
     if (fs.existsSync(file)) {
-        context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.file}:process`)
+        context.logger = rootLogger.start(`${file}:process`)
         await handleDefaultProcessor(file, data, context)
         context.logger.end()
         context.logger = rootLogger
@@ -344,7 +344,7 @@ exports.listen = function (logger) {
     })
 
     worker.on('message', function (message, next, id) {
-        let log = logger.start(`PROCESS ${id}`)
+        let log = logger.start(`${id}`)
         process(message, log).then(() => {
             log.end()
             next()
