@@ -29,6 +29,8 @@ let options = {
         processors: (ctx) => Promise.cast([])
     }
 }
+
+let handlerFiles = {}
 const setOptions = (config) => {
     options.disabled = config.disabled
     if (config.name) {
@@ -86,10 +88,9 @@ const setOptions = (config) => {
 
 setOptions(queueConfig || {})
 
-const handleDefaultProcessor = async (file, entity, context) => {
-    let handler = require(file)
+const handleDefaultProcessor = async (handler, entity, context) => {
     if (!handler.process) {
-        context.logger.error(`no 'process' method in ${file}`)
+        context.logger.error(`no 'process' method`)
         return Promise.resolve()
     }
     return new Promise((resolve, reject) => {
@@ -150,54 +151,69 @@ const handleContextProcessor = async (file, entity, config, context) => {
     })
 }
 
+const getHandlerFiles = (entity, action, context) => {
+    if (handlerFiles[entity] && handlerFiles[entity][action]) {
+        return handlerFiles[entity][action]
+    }
+
+    context.logger.silly(`looking handler files for ${entity}.${action}`)
+    handlerFiles[entity] = handlerFiles[entity] || {}
+    handlerFiles[entity][action] = handlerFiles[entity][action] || []
+
+    const actionRoot = `${options.processors.dir}/${changeCase.paramCase(entity)}/${changeCase.paramCase(action)}`
+    const root = `${appRoot}/${actionRoot}`
+
+    let file = `${root}.js`
+    if (fs.existsSync(file)) {
+        handlerFiles[entity][action].push(file)
+    }
+    if (!fs.existsSync(root)) {
+        return handlerFiles[entity][action]
+    }
+    file = `${root}/${options.processors.default.file}`
+    if (fs.existsSync(file)) {
+        handlerFiles[entity][action].push(file)
+    }
+
+    let dir = `${root}/${options.processors.default.dir}`
+    if (!fs.existsSync(dir)) {
+        return handlerFiles[entity][action]
+    }
+    for (let file of fs.readdirSync(dir)) {
+        if (file.search('.js') < 0) {
+            context.logger.error(`${file} is not .js`)
+            return
+        }
+        handlerFiles[entity][action].push(`${dir}/${file}`)
+    }
+
+    return handlerFiles[entity][action]
+}
+
 const handleMessage = async (entity, action, data, context) => {
     let rootLogger = context.logger
     context.trigger = {
         entity: entity,
         action: action
     }
-    const actionRoot = `${options.processors.dir}/${changeCase.paramCase(entity)}/${changeCase.paramCase(action)}`
-    const root = `${appRoot}/${actionRoot}`
 
-    // default actions
-    let file = `${root}.js`
-    if (fs.existsSync(file)) {
-        context.logger = rootLogger.start(`${file}:process`)
-        await handleDefaultProcessor(file, data, context)
+    for (const file of getHandlerFiles(entity, action, context)) {
+        context.logger = rootLogger.start({
+            location: `${file}:process`
+        })
+        let handler = require(file)
+        await handleDefaultProcessor(handler, data, context)
         context.logger.end()
         context.logger = rootLogger
-    }
-
-    if (!fs.existsSync(root)) {
-        return
-    }
-
-    file = `${root}/${options.processors.default.file}`
-    if (fs.existsSync(file)) {
-        context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.file}:process`)
-        await handleDefaultProcessor(file, data, context)
-        context.logger.end()
-        context.logger = rootLogger
-    }
-
-    let dir = `${root}/${options.processors.default.dir}`
-    if (fs.existsSync(dir)) {
-        for (let file of fs.readdirSync(dir)) {
-            if (file.search('.js') < 0) {
-                context.logger.error(`${file} is not .js`)
-                return
-            }
-            context.logger = rootLogger.start(`${actionRoot}/${options.processors.default.dir}/${file}:process`)
-            await handleDefaultProcessor(`${dir}/${file}`, data, context)
-            context.logger.end()
-            context.logger = rootLogger
-        }
     }
 
     if (!options.context.processors) {
         return
     }
     let processors = await options.context.processors(context)
+
+    const actionRoot = `${options.processors.dir}/${changeCase.paramCase(entity)}/${changeCase.paramCase(action)}`
+    const root = `${appRoot}/${actionRoot}`
     for (let processor of processors) {
         let file = `${root}/${processor.name}.js`
         if (fs.existsSync(file)) {
@@ -269,17 +285,17 @@ exports.initialize = (params, logger) => {
     }
 }
 /**
-     *
-     * @param {string} entity
-     * @param {string} action
-     * @param {*} data
-     * @param {*} context
-     */
+ *
+ * @param {string} entity
+ * @param {string} action
+ * @param {*} data
+ * @param {*} context
+ */
 exports.queue = async (entity, action, data, context) => {
     let log = context.logger.start('offline:queue')
 
     if (options.disabled || global.processSync || context.processSync) {
-        log.debug('immediately processing', {
+        log.silly('immediately processing', {
             entity: entity,
             action: action
         })
@@ -314,7 +330,7 @@ exports.queue = async (entity, action, data, context) => {
                 return reject(err)
             }
             if (messageId) {
-                log.debug(`message queued id: ${messageId}`)
+                log.silly(`message queued id: ${messageId}`)
             }
             resolve()
         })

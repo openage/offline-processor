@@ -1,12 +1,15 @@
 # offline-processor
 redis based offline processor
 
+- cached handler files
+
 
 ## installation
 
 ```
 npm install @open-age/offline-processor --save
 ```
+
 
 ## usage
 
