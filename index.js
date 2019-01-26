@@ -119,37 +119,37 @@ const handleDefaultProcessor = async (handler, entity, context) => {
     })
 }
 
-const handleContextProcessor = async (file, entity, config, context) => {
-    let handler = require(file)
-    if (!handler.process) {
-        context.logger.error(`no 'process' method in ${file}`)
-        return Promise.resolve()
-    }
-    return new Promise((resolve, reject) => {
-        let isHandled = false
-        let promise = handler.process(entity, config, context, err => {
-            if (isHandled) { return }
-            isHandled = true
-            if (err) {
-                context.logger.error(err)
-            }
-            resolve()
-        })
+// const handleContextProcessor = async (file, entity, config, context) => {
+//     let handler = require(file)
+//     if (!handler.process) {
+//         context.logger.error(`no 'process' method in ${file}`)
+//         return Promise.resolve()
+//     }
+//     return new Promise((resolve, reject) => {
+//         let isHandled = false
+//         let promise = handler.process(entity, config, context, err => {
+//             if (isHandled) { return }
+//             isHandled = true
+//             if (err) {
+//                 context.logger.error(err)
+//             }
+//             resolve()
+//         })
 
-        if (promise) {
-            promise.then(() => {
-                if (isHandled) { return }
-                isHandled = true
-                resolve()
-            }).catch(err => {
-                if (isHandled) { return }
-                isHandled = true
-                context.logger.error(err)
-                resolve()
-            })
-        }
-    })
-}
+//         if (promise) {
+//             promise.then(() => {
+//                 if (isHandled) { return }
+//                 isHandled = true
+//                 resolve()
+//             }).catch(err => {
+//                 if (isHandled) { return }
+//                 isHandled = true
+//                 context.logger.error(err)
+//                 resolve()
+//             })
+//         }
+//     })
+// }
 
 const getHandlerFiles = (entity, action, context) => {
     if (handlerFiles[entity] && handlerFiles[entity][action]) {
@@ -205,20 +205,6 @@ const handleMessage = async (entity, action, data, context) => {
         await handleDefaultProcessor(handler, data, context)
         context.logger.end()
         context.logger = rootLogger
-    }
-
-    if (!options.context.processors) {
-        return
-    }
-    let processors = await options.context.processors(context)
-
-    const actionRoot = `${options.processors.dir}/${changeCase.paramCase(entity)}/${changeCase.paramCase(action)}`
-    const root = `${appRoot}/${actionRoot}`
-    for (let processor of processors) {
-        let file = `${root}/${processor.name}.js`
-        if (fs.existsSync(file)) {
-            await handleContextProcessor(file, data, processor.config, context)
-        }
     }
 }
 
