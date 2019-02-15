@@ -10,7 +10,6 @@ let redisQueue = null
 
 let options = {
     disabled: false,
-    name: 'offline',
     port: 6379,
     host: '127.0.0.1',
     ns: 'offline',
@@ -22,20 +21,27 @@ let options = {
             file: 'default.js'
         }
     },
+    queues: {},
     models: {},
     context: {
         serializer: (ctx) => Promise.cast(ctx),
         deserializer: (ctx) => Promise.cast(ctx),
-        processors: (ctx) => Promise.cast([])
+        subscribers: (ctx) => Promise.cast([])
     }
 }
 
 let handlerFiles = {}
 const setOptions = (config) => {
     options.disabled = config.disabled
-    if (config.name) {
-        options.name = config.name
+
+    if (config.queues) {
+        options.queues = config.queues
     }
+
+    if (config.name) {
+        options.queues.default = config.name
+    }
+
     if (config.port) {
         options.port = config.port
     }
@@ -52,6 +58,7 @@ const setOptions = (config) => {
         options.timeout = config.timeout
     }
 
+    config.processors = config.processors || config.subscribers
     if (config.processors) {
         if (config.processors.dir) {
             options.processors.dir = config.processors.dir
@@ -89,13 +96,13 @@ const setOptions = (config) => {
 setOptions(queueConfig || {})
 
 const handleDefaultProcessor = async (handler, entity, context) => {
-    if (!handler.process) {
-        context.logger.error(`no 'process' method`)
+    if (!handler.process || !handler.subscribe) {
+        context.logger.error(`no 'subscribe' method`)
         return Promise.resolve()
     }
     return new Promise((resolve, reject) => {
         let isHandled = false
-        let promise = handler.process(entity, context, err => {
+        let promise = (handler.process || handler.subscribe)(entity, context, err => {
             if (isHandled) { return }
             isHandled = true
             if (err) {
@@ -199,7 +206,7 @@ const handleMessage = async (entity, action, data, context) => {
 
     for (const file of getHandlerFiles(entity, action, context)) {
         context.logger = rootLogger.start({
-            location: `${file}:process`
+            location: `${file}:subscribe`
         })
         let handler = require(file)
         await handleDefaultProcessor(handler, data, context)
@@ -257,17 +264,29 @@ exports.initialize = (params, logger) => {
             ns: options.ns
         })
 
-        redisQueue.createQueue({
-            qname: options.name,
-            maxsize: -1
-        }, (err, resp) => {
-            if (err && err.message === 'Queue exists') {
-                log.info(`offline ${err.message}`)
+        const queues = []
+
+        for (const key of Object.keys(options.queues)) {
+            let queueName = options.queues[key]
+
+            if (!queues.find(i => i === queueName)) {
+                queues.push(queueName)
             }
-            if (resp === 1) {
-                log.info(`offline created`)
-            }
-        })
+        }
+
+        for (const queueName of queues) {
+            redisQueue.createQueue({
+                qname: queueName,
+                maxsize: -1
+            }, (err, resp) => {
+                if (err && err.message === 'Queue exists') {
+                    log.info(`offline ${err.message}`)
+                }
+                if (resp === 1) {
+                    log.info(`offline created`)
+                }
+            })
+        }
     }
 }
 /**
@@ -279,8 +298,9 @@ exports.initialize = (params, logger) => {
  */
 exports.queue = async (entity, action, data, context) => {
     let log = context.logger.start('offline:queue')
+    let queueName = options.queues[`${entity}:${action}`] || options.queues.default
 
-    if (options.disabled || global.processSync || context.processSync) {
+    if (!queueName || options.disabled || global.processSync || context.processSync) {
         log.silly('immediately processing', {
             entity: entity,
             action: action
@@ -302,7 +322,7 @@ exports.queue = async (entity, action, data, context) => {
 
     return new Promise((resolve, reject) => {
         redisQueue.sendMessage({
-            qname: options.name,
+            qname: queueName,
             message: JSON.stringify({
                 context: serializedContext,
                 entity: entity,
@@ -323,9 +343,34 @@ exports.queue = async (entity, action, data, context) => {
     })
 }
 
-exports.listen = function (logger) {
-    logger.info('listening for messages')
-    var worker = new RSMQWorker(options.name, {
+exports.publish = exports.queue
+
+exports.listen = function (queueNames, logger) {
+    queueNames = queueNames || options.queues.default
+
+    let queues = []
+
+    if (queueNames) {
+        if (!Array.isArray(queueNames)) {
+            queues.push(queueNames)
+        } else {
+            queues = queueNames
+        }
+    }
+
+    if (!queues.length && options.queues.default) {
+        queues.push(options.queues.default)
+    }
+
+    for (const queueName of queues) {
+        let worker = workerFactory(queueName, logger)
+        worker.start()
+    }
+}
+
+const workerFactory = (queueName, logger) => {
+    logger.info(`listening for messages on queue ${queueName}`)
+    var worker = new RSMQWorker(queueName, {
         rsmq: redisQueue,
         timeout: options.timeout
     })
@@ -346,7 +391,7 @@ exports.listen = function (logger) {
     })
 
     worker.on('message', function (message, next, id) {
-        let log = logger.start(`${id}`)
+        let log = logger.start(`${queueName}:${id}`)
         process(message, log).then(() => {
             log.end()
             next()
@@ -357,5 +402,5 @@ exports.listen = function (logger) {
         })
     })
 
-    worker.start()
+    return worker
 }
