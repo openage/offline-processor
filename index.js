@@ -93,10 +93,10 @@ const setOptions = (config) => {
     }
 }
 
-setOptions(queueConfig || {})
+setOptions(JSON.parse(JSON.stringify(queueConfig)) || {})
 
 const handleDefaultProcessor = async (handler, entity, context) => {
-    if (!handler.process || !handler.subscribe) {
+    if (!(handler.process || handler.subscribe)) {
         context.logger.error(`no 'subscribe' method`)
         return Promise.resolve()
     }
@@ -257,12 +257,6 @@ const process = async (message, logger) => {
 exports.initialize = (params, logger) => {
     let log = logger.start('offline:initialize')
     setOptions(params || {})
-    if (!options.disabled) {
-        redisQueue = new redisSMQ({
-            host: options.host,
-            port: options.port,
-            ns: options.ns
-        })
 
         const queues = []
 
@@ -272,7 +266,14 @@ exports.initialize = (params, logger) => {
             if (!queues.find(i => i === queueName)) {
                 queues.push(queueName)
             }
-        }
+    }
+        
+    if (!options.disabled && queues.length) {
+        redisQueue = new redisSMQ({
+            host: options.host,
+            port: options.port,
+            ns: options.ns
+        })
 
         for (const queueName of queues) {
             redisQueue.createQueue({
