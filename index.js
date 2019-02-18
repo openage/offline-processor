@@ -258,16 +258,16 @@ exports.initialize = (params, logger) => {
     let log = logger.start('offline:initialize')
     setOptions(params || {})
 
-        const queues = []
+    const queues = []
 
-        for (const key of Object.keys(options.queues)) {
-            let queueName = options.queues[key]
+    for (const key of Object.keys(options.queues)) {
+        let queueName = options.queues[key]
 
-            if (!queues.find(i => i === queueName)) {
-                queues.push(queueName)
-            }
+        if (!queues.find(i => i === queueName)) {
+            queues.push(queueName)
+        }
     }
-        
+
     if (!options.disabled && queues.length) {
         redisQueue = new redisSMQ({
             host: options.host,
@@ -281,10 +281,10 @@ exports.initialize = (params, logger) => {
                 maxsize: -1
             }, (err, resp) => {
                 if (err && err.message === 'Queue exists') {
-                    log.info(`offline ${err.message}`)
+                    log.info(`queue:${queueName} ${err.message}`)
                 }
                 if (resp === 1) {
-                    log.info(`offline created`)
+                    log.info(`queue:${queueName} created`)
                 }
             })
         }
@@ -298,7 +298,7 @@ exports.initialize = (params, logger) => {
  * @param {*} context
  */
 exports.queue = async (entity, action, data, context) => {
-    let log = context.logger.start('offline:queue')
+    let log = context.logger.start('publish')
     let queueName = options.queues[`${entity}:${action}`] || options.queues.default
 
     if (!queueName || options.disabled || global.processSync || context.processSync) {
@@ -310,7 +310,7 @@ exports.queue = async (entity, action, data, context) => {
         return handleMessage(entity, action, data, context)
     }
 
-    log.debug('queuing for offline processing', {
+    log.debug(`sending message to queue:${queueName}`, {
         entity: entity,
         action: action
     })
@@ -370,7 +370,7 @@ exports.listen = function (queueNames, logger) {
 }
 
 const workerFactory = (queueName, logger) => {
-    logger.info(`listening for messages on queue ${queueName}`)
+    logger.info(`listening for messages on queue:${queueName}`)
     var worker = new RSMQWorker(queueName, {
         rsmq: redisQueue,
         timeout: options.timeout
