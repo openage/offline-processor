@@ -1,0 +1,11 @@
+.git
+node_modules
+src
+karma.conf.js
+tslint.json
+tsconfig.json
+.eslintrc.js
+.eslintignore
+.jshintrc
+jsconfig.json
+
