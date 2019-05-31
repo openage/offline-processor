@@ -1,6 +1,6 @@
 {
     "name": "@open-age/offline-processor",
-    "version": "1.4.11",
+    "version": "1.4.12",
     "description": "pub-sub based offline processor over redis",
     "main": "index.js",
     "scripts": {
@@ -18,7 +18,7 @@
         "redis",
         "queue"
     ],
-    "dependencies": {
+    "peerDependencies": {
         "@open-age/logger": "^1.3.6",
         "app-root-path": "^2.1.0",
         "config": "^1.30.0",
