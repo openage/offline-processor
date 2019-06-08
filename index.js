@@ -6,6 +6,8 @@ const changeCase = require('change-case')
 let redisSMQ = require('rsmq')
 var RSMQWorker = require('rsmq-worker')
 
+const messageHelper = require('./helpers/message')
+
 let redisQueue = null
 
 let options = {
@@ -215,30 +217,8 @@ const handleMessage = async (entity, action, data, context) => {
     }
 }
 
-const deserialize = async (message, logger) => {
-    var data = JSON.parse(message)
-
-    let context = options.context.deserializer
-        ? await options.context.deserializer(data.context, logger)
-        : data.context
-
-    context.logger = logger
-
-    let model = data.data
-
-    if (options.models && options.models[data.entity] && options.models[data.entity].deserializer) {
-        model = await options.models[data.entity].deserializer(data.data, context)
-    }
-
-    return {
-        context: context,
-        model: model,
-        entity: data.entity,
-        action: data.action
-    }
-}
 const process = async (message, logger) => {
-    let data = await deserialize(message, logger)
+    let data = await messageHelper.deserialize(message, options, logger)
     let description = data.model && data.model.id
         ? `${data.entity}/${data.model.id}/${data.action}`
         : `${data.entity}/${data.action}`
@@ -292,44 +272,35 @@ exports.initialize = (params, logger) => {
 }
 /**
  *
- * @param {string} entity
+ * @param {string} entityName
  * @param {string} action
  * @param {*} data
  * @param {*} context
  */
-exports.queue = async (entity, action, data, context) => {
+exports.queue = async (entityName, action, data, context) => {
     let log = context.logger.start('publish')
-    let queueName = options.queues[`${entity}:${action}`] || options.queues.default
+    let queueName = options.queues[`${entityName}:${action}`] || options.queues.default
 
     if (!queueName || options.disabled || global.processSync || context.processSync) {
         log.silly('immediately processing', {
-            entity: entity,
+            entity: entityName,
             action: action
         })
 
-        return handleMessage(entity, action, data, context)
+        return handleMessage(entityName, action, data, context)
     }
 
     log.debug(`sending message to queue:${queueName}`, {
-        entity: entity,
+        entity: entityName,
         action: action
     })
 
-    let serializedContext = options.context.serializer ? await options.context.serializer(context) : context
-    let serializedModel = data
-    if (options.models && options.models[entity] && options.models[entity].serializer) {
-        serializedModel = await options.models[entity].serializer(data)
-    }
+    const message = await messageHelper.serialize(entityName, action, data, options, context)
 
     return new Promise((resolve, reject) => {
         redisQueue.sendMessage({
             qname: queueName,
-            message: JSON.stringify({
-                context: serializedContext,
-                entity: entity,
-                action: action,
-                data: serializedModel
-            })
+            message: message
         }, function (err, messageId) {
             if (err) {
                 log.error(err)
