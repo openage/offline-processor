@@ -56,6 +56,10 @@ const setOptions = (config) => {
         options.ns = config.ns
     }
 
+    if (config.options) {
+        options.options = config.options
+    }
+
     if (config.timeout) {
         options.timeout = config.timeout
     }
@@ -252,7 +256,8 @@ exports.initialize = (params, logger) => {
         redisQueue = new redisSMQ({
             host: options.host,
             port: options.port,
-            ns: options.ns
+            ns: options.ns,
+            options: options.options || {}
         })
 
         for (const queueName of queues) {
