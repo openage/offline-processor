@@ -30,6 +30,10 @@ exports.parse = (serialized, logger) => {
 
     if (serialized.tenantId) {
         claims.tenant = { id: serialized.tenantId }
+    }    
+    
+    if (serialized.meta) {
+        claims.meta = serialized.meta
     }
 
     logger.silly(claims)
