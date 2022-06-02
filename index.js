@@ -63,6 +63,10 @@ const setOptions = (config) => {
     if (config.timeout) {
         options.timeout = config.timeout
     }
+    
+    if(config.password) {
+        options.options = {password : config.password}
+    }
 
     config.processors = config.processors || config.subscribers
     if (config.processors) {
