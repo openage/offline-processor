@@ -19,9 +19,8 @@ const setOptions = (config) => {
     }
 }
 
-
 const initialize = async (params, logger) => {
-    let log = logger.start('kafka: offline:initialize')
+    let log = logger.start('kafka:initialize')
     setOptions(params || {})
     let { brokers, clientId } = params
     log.info(`brokers : ${brokers} and clientId: ${clientId} isProducer: ${params.producer}`)
@@ -37,27 +36,27 @@ const initialize = async (params, logger) => {
         log.end()
 
     } catch (err) {
-        log.error(`There were some issue while connecting to kafkaserver: ${err}`)
+        log.error(err)
         log.end()
         throw err
     }
 }
 
-const queue = async (message, topic, logger) => {
-    let log = logger.start('kafka: offline:queue')
+const queue = async (message, queue, logger) => {
+    let log = logger.start('kafka:queue')
+    const payload = {
+        topic: queue,
+        messages: [{ value: message }]
+    }
 
     return new Promise(async (resolve, reject) => {
-        const payloads = {
-            topic,
-            messages: [{ value: message }]
-        }
-        log.info(`topic : ${topic} and messages: ${message} `)
         try {
-            await producer.send(payloads)
+            await producer.send(payload)
+            log.silly(`message queued`)
             log.end()
             resolve()
         } catch (err) {
-            log.error(`There were some issue while producing to kafkaserver: ${err}`)
+            log.error(err)
             log.end()
             return reject(err)
         }
@@ -65,29 +64,32 @@ const queue = async (message, topic, logger) => {
 }
 
 const subscribe = async ({ process, topic, logger }) => {
-    topic = topic || options.queues.default
-    let log = logger.start('kafka: offline:subscribe')
-    log.info(`consumerGroupId : ${options.consumerGroupId} `)
+    let log = logger.start(`kafka:subscribe:${topic}`)
+    let groupId = options.consumerGroupId // TODO: should there be multiple group id - one for each topic?
 
     let consumer = messageBroker.consumer({ groupId: options.consumerGroupId })
     await consumer.subscribe({ topic })
     await consumer.connect()
     consumer.run({
         eachMessage: async ({ topic, partition, message }) => {
-            log.info(`consuming the message topic: ${topic}, partition: ${partition}, message: ${JSON.stringify(message)}`)
+
+            let consumerLog = logger.start(`${topic}:${message.id}`) // TODO: do we get any id of message
+            consumerLog.silly(`topic: ${topic}, partition: ${partition}, message: ${JSON.stringify(message)}`)
 
             message = message.value.toString()
-            process(message, log).then(() => {
-                log.info(`Message consumed successfully`)
-                log.end()
+            process(message, log).then((id) => {
+                consumerLog.info(`processed: ${id}`)
+                consumerLog.end()
             }).catch(err => {
-                log.error(`There were some issue while consuming from kafkaserver: ${err}`)
-                log.end()
+                consumerLog.error(err)
+                consumerLog.end()
             })
         }
     })
-}
 
+    log.info('listening')
+    log.end()
+}
 
 module.exports = {
     initialize,

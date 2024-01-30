@@ -1,7 +1,7 @@
 'use strict'
 
-var msgbrokerConfig = require('config').get('queueServer')
-let msgbroker = require(`./providers/${msgbrokerConfig.provider}`)
+var queueConfig = require('config').get('queueServer')
+let queueHandler = require(`./providers/${queueConfig.provider}`)
 var appRoot = require('app-root-path')
 var fs = require('fs')
 const changeCase = require('change-case')
@@ -71,7 +71,7 @@ const setOptions = (config) => {
     }
 }
 
-setOptions(JSON.parse(JSON.stringify(msgbrokerConfig)) || {})
+setOptions(JSON.parse(JSON.stringify(queueConfig)) || {})
 
 const handleDefaultProcessor = async (handler, entity, context) => {
     if (!(handler.process || handler.subscribe)) {
@@ -206,10 +206,16 @@ const process = async (message, logger) => {
 }
 
 exports.initialize = async (params, logger, options) => {
-    params = {...params, ...options}
-    await msgbroker.initialize(params, logger)
+    params = { ...params, ...options }
+    await queueHandler.initialize(params, logger)
 }
 
+/**
+ * @param {string} entityName
+ * @param {string} action
+ * @param {*} data
+ * @param {*} context
+ */
 exports.queue = async (entityName, action, data, context) => {
     let log = context.logger.start('publish')
     let queueName = options.queues[`${entityName}:${action}`] || options.queues.default
@@ -226,11 +232,31 @@ exports.queue = async (entityName, action, data, context) => {
         action: action
     })
     const message = await messageHelper.serialize(entityName, action, data, options, context)
-    return msgbroker.queue(message, queueName, context.logger.start('publish'))
+    return queueHandler.queue(message, queueName, context.logger.start('publish'))
 }
 
-exports.listen = async function (queueNames, logger) {
-    msgbroker.subscribe({process, queueNames, logger})
+exports.listen = async (queueNames, logger) => {
+    let log = logger.start('listen')
+    queueNames = queueNames || options.queues.default
+    let queues = []
+
+    if (queueNames) {
+        if (!Array.isArray(queueNames)) {
+            queues.push(queueNames)
+        } else {
+            queues = queueNames
+        }
+    }
+
+    if (!queues.length && options.queues.default) {
+        queues.push(options.queues.default)
+    }
+
+    for (const queueName of queues) {
+        queueHandler.subscribe(process, queueName, log)
+    }
+
+    log.end()
 }
 
 exports.publish = exports.queue

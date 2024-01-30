@@ -1,6 +1,6 @@
 let redisSMQ = require('rsmq')
-var RSMQWorker = require('rsmq-worker')
-var msgbrokerConfig = require('config').get('queueServer')
+const RSMQWorker = require('rsmq-worker')
+const queueConfig = require('config').get('queueServer')
 
 var options = {
     disabled: false,
@@ -9,7 +9,7 @@ var options = {
     ns: 'offline',
     timeout: 30 * 60 * 1000, // 30 min
 }
-let redisQueue = null
+let messageBroker = null
 
 const setOptions = (config) => {
     options.disabled = config.disabled
@@ -46,10 +46,10 @@ const setOptions = (config) => {
     }
 }
 
-setOptions(JSON.parse(JSON.stringify(msgbrokerConfig)) || {})
+setOptions(JSON.parse(JSON.stringify(queueConfig)) || {})
 
 const initialize = async (params, logger) => {
-    let log = logger.start('offline:initialize')
+    let log = logger.start('redis:initialize')
     setOptions(params || {})
 
     const queues = []
@@ -63,7 +63,7 @@ const initialize = async (params, logger) => {
     }
 
     if (!options.disabled && queues.length) {
-        redisQueue = new redisSMQ({
+        messageBroker = new redisSMQ({
             host: options.host,
             port: options.port,
             ns: options.ns,
@@ -71,7 +71,7 @@ const initialize = async (params, logger) => {
         })
 
         for (const queueName of queues) {
-            redisQueue.createQueue({
+            messageBroker.createQueue({
                 qname: queueName,
                 maxsize: -1
             }, (err, resp) => {
@@ -84,82 +84,69 @@ const initialize = async (params, logger) => {
             })
         }
     }
+
+    log.end()
 }
-const queue = async (message, queue, log) => {
+
+const queue = async (message, queue, logger) => {
+    let log = logger.start('redis:queue')
+
+    const payload = {
+        qname: queue,
+        message: message
+    }
+
     return new Promise((resolve, reject) => {
-        redisQueue.sendMessage({
-            qname: queue,
-            message: message
-        }, function (err, messageId) {
+        messageBroker.sendMessage(payload, function (err, messageId) {
             if (err) {
                 log.error(err)
+                log.end()
                 return reject(err)
             }
-            if (messageId) {
-                log.silly(`message queued id: ${messageId}`)
-            }
+            log.silly(`message queued id: ${messageId}`)
+            log.end()
             resolve()
         })
     })
 }
 
-const subscribe = ({ process, queueNames, logger }) => {
-    queueNames = queueNames || options.queues.default
-    let queues = []
-
-    if (queueNames) {
-        if (!Array.isArray(queueNames)) {
-            queues.push(queueNames)
-        } else {
-            queues = queueNames
-        }
-    }
-
-    if (!queues.length && options.queues.default) {
-        queues.push(options.queues.default)
-    }
-
-    for (const queueName of queues) {
-        let worker = workerFactory(process, queueName, logger)
-        worker.start()
-    }
-}
-
-const workerFactory = (process, queueName, logger) => {
-    logger.info(`listening for messages on queue:${queueName}`)
-    var worker = new RSMQWorker(queueName, {
-        rsmq: redisQueue,
+const subscribe = ({ process, queueName, logger }) => {
+    let log = logger.start(`redis:subscribe:${queueName}`)
+    const consumer = new RSMQWorker(queueName, {
+        rsmq: messageBroker,
         timeout: options.timeout
     })
 
-    worker.on('error', function (err, msg) {
+    consumer.on('error', function (err, msg) {
         logger.error('error', {
             error: err,
             message: msg
         })
     })
 
-    worker.on('exceeded', function (msg) {
+    consumer.on('exceeded', function (msg) {
         logger.error('exceeded', msg)
     })
 
-    worker.on('timeout', function (msg) {
+    consumer.on('timeout', function (msg) {
         logger.error('timeout', msg)
     })
 
-    worker.on('message', function (message, next, id) {
-        let log = logger.start(`${queueName}:${id}`)
+    consumer.on('message', function (message, next, id) {
+        let consumerLog = logger.start(`${queueName}:${id}`)
         process(message, log).then(() => {
-            log.end()
+            consumerLog.end()
             next()
         }).catch(err => {
-            log.error(err)
-            log.end()
+            consumerLog.error(err)
+            consumerLog.end()
             next(err)
         })
     })
 
-    return worker
+    consumer.start()
+    log.info('listening')
+    log.end()
 }
 
 
