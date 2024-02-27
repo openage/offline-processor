@@ -1,21 +1,15 @@
 'use strict'
+
 var queueConfig = require('config').get('queueServer')
+let queueHandler = require(`./providers/${queueConfig.provider}`)
 var appRoot = require('app-root-path')
 var fs = require('fs')
 const changeCase = require('change-case')
-let redisSMQ = require('rsmq')
-var RSMQWorker = require('rsmq-worker')
 
 const messageHelper = require('./helpers/message')
 
-let redisQueue = null
-
 let options = {
     disabled: false,
-    port: 6379,
-    host: '127.0.0.1',
-    ns: 'offline',
-    timeout: 30 * 60 * 1000, // 30 min
     processors: {
         dir: 'actionHandlers',
         default: {
@@ -35,7 +29,6 @@ let options = {
 let handlerFiles = {}
 const setOptions = (config) => {
     options.disabled = config.disabled
-
     if (config.queues) {
         options.queues = config.queues
     }
@@ -43,31 +36,6 @@ const setOptions = (config) => {
     if (config.name) {
         options.queues.default = config.name
     }
-
-    if (config.port) {
-        options.port = config.port
-    }
-
-    if (config.host) {
-        options.host = config.host
-    }
-
-    if (config.ns) {
-        options.ns = config.ns
-    }
-
-    if (config.options) {
-        options.options = config.options
-    }
-
-    if (config.timeout) {
-        options.timeout = config.timeout
-    }
-    
-    if(config.password) {
-        options.options = {password : config.password}
-    }
-
     config.processors = config.processors || config.subscribers
     if (config.processors) {
         if (config.processors.dir) {
@@ -233,54 +201,16 @@ const process = async (message, logger) => {
     let log = logger.start(`PROCESS ${description}`)
 
     data.context.logger = log
-
     await handleMessage(data.entity, data.action, data.model, data.context)
     log.end()
 }
 
-/**
- *
- * @param {*} params
- */
-exports.initialize = (params, logger) => {
-    let log = logger.start('offline:initialize')
-    setOptions(params || {})
-
-    const queues = []
-
-    for (const key of Object.keys(options.queues)) {
-        let queueName = options.queues[key]
-
-        if (!queues.find(i => i === queueName)) {
-            queues.push(queueName)
-        }
-    }
-
-    if (!options.disabled && queues.length) {
-        redisQueue = new redisSMQ({
-            host: options.host,
-            port: options.port,
-            ns: options.ns,
-            options: options.options || {}
-        })
-
-        for (const queueName of queues) {
-            redisQueue.createQueue({
-                qname: queueName,
-                maxsize: -1
-            }, (err, resp) => {
-                if (err && err.message === 'Queue exists') {
-                    log.info(`queue:${queueName} ${err.message}`)
-                }
-                if (resp === 1) {
-                    log.info(`queue:${queueName} created`)
-                }
-            })
-        }
-    }
+exports.initialize = async (params, logger, options) => {
+    params = { ...params, ...options }
+    await queueHandler.initialize(params, logger)
 }
+
 /**
- *
  * @param {string} entityName
  * @param {string} action
  * @param {*} data
@@ -295,40 +225,19 @@ exports.queue = async (entityName, action, data, context) => {
             entity: entityName,
             action: action
         })
-
         return handleMessage(entityName, action, data, context)
     }
-
     log.debug(`sending message to queue:${queueName}`, {
         entity: entityName,
         action: action
     })
-
     const message = await messageHelper.serialize(entityName, action, data, options, context)
-
-    return new Promise((resolve, reject) => {
-        redisQueue.sendMessage({
-            qname: queueName,
-            message: message
-        }, function (err, messageId) {
-            if (err) {
-                log.error(err)
-
-                return reject(err)
-            }
-            if (messageId) {
-                log.silly(`message queued id: ${messageId}`)
-            }
-            resolve()
-        })
-    })
+    return queueHandler.queue(message, queueName, context.logger.start('publish'))
 }
 
-exports.publish = exports.queue
-
-exports.listen = function (queueNames, logger) {
+exports.listen = async (queueNames, logger) => {
+    let log = logger.start('listen')
     queueNames = queueNames || options.queues.default
-
     let queues = []
 
     if (queueNames) {
@@ -344,44 +253,10 @@ exports.listen = function (queueNames, logger) {
     }
 
     for (const queueName of queues) {
-        let worker = workerFactory(queueName, logger)
-        worker.start()
+        queueHandler.subscribe(process, queueName, log)
     }
+
+    log.end()
 }
 
-const workerFactory = (queueName, logger) => {
-    logger.info(`listening for messages on queue:${queueName}`)
-    var worker = new RSMQWorker(queueName, {
-        rsmq: redisQueue,
-        timeout: options.timeout
-    })
-
-    worker.on('error', function (err, msg) {
-        logger.error('error', {
-            error: err,
-            message: msg
-        })
-    })
-
-    worker.on('exceeded', function (msg) {
-        logger.error('exceeded', msg)
-    })
-
-    worker.on('timeout', function (msg) {
-        logger.error('timeout', msg)
-    })
-
-    worker.on('message', function (message, next, id) {
-        let log = logger.start(`${queueName}:${id}`)
-        process(message, log).then(() => {
-            log.end()
-            next()
-        }).catch(err => {
-            log.error(err)
-            log.end()
-            next(err)
-        })
-    })
-
-    return worker
-}
+exports.publish = exports.queue

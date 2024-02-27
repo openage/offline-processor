@@ -1,6 +1,6 @@
 {
     "name": "@open-age/offline-processor",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "description": "pub-sub based offline processor over redis",
     "main": "index.js",
     "scripts": {
