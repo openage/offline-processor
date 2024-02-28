@@ -253,7 +253,7 @@ exports.listen = async (queueNames, logger) => {
     }
 
     for (const queueName of queues) {
-        queueHandler.subscribe(process, queueName, log)
+        queueHandler.subscribe({ process, queueName, logger })
     }
 
     log.end()
